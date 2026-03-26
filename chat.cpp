@@ -1,0 +1,430 @@
+#include "chat.h"
+#include "qevent.h"
+#include<QHostInfo>
+#include<QMessageBox>
+#include<QDateTime>
+#include<QProcess>
+#include<QDataStream>
+#include<QScrollBar>
+#include<QFont>
+#include<QNetworkInterface>
+#include<QStringList>
+#include<QDebug>
+#include<QFileDialog>
+#include<QColorDialog>
+#include<QHostAddress>
+#include<QFontComboBox>
+#include<QTextEdit>
+#include "tcpclient.h"
+#include"ui_chat.h"
+chat::chat(QWidget *parent,QString pasvusername,QString pasvuserip) :
+    QDialog(parent),
+    xchat(nullptr),
+    ui(new Ui::chat),
+    server(nullptr)
+
+{
+    ui->setupUi(this);
+    ui->textEdit->setFocusPolicy(Qt::StrongFocus);
+    ui->textBrowser->setFocusPolicy(Qt::NoFocus);
+
+    ui->textEdit->setFocus();
+    ui->textEdit->installEventFilter(this);
+    // is_opend = false;
+
+    ui->label->setText(tr("与%1私聊中 对方的IP：%2").arg(xpasusername)
+                           .arg(xpasuserip));
+
+    xchat = new QUdpSocket(this);
+    xport = 45456;
+
+    xchat->bind( QHostAddress(getIp()),xport);
+    connect(xchat,SIGNAL(readyRead()),
+            this,SLOT(processPendinDatagrams()));
+
+    server = new TcpServer(this);
+    connect(server, SIGNAL(sendFileName(QString)),
+            this,SLOT(getFileName(QString)));
+}
+chat::~chat(){
+
+};
+/*
+发送信息到广播
+
+*/
+void chat::sendMessage(messageType type, QString serverAddress)
+{
+    QByteArray data;
+    QDataStream out(&data,QIODevice::WriteOnly);
+    QString localHostName = QHostInfo::localHostName();
+    QString address = getIp();
+    out <<type << getUserName() << localHostName;
+    switch (type) {
+    case LeftParticipant:
+
+        break;
+
+    case Message:
+    {
+        if(ui->textEdit->toPlainText() =="")
+        {
+            QMessageBox::warning(0,tr("警告"),tr("发送内容不能为空"),QMessageBox::Ok);
+            return ;
+        }
+        else
+        {
+            ui->label->setText(tr("与%1私聊中 对方的IP：%2").arg(xpasusername)
+                                                                    .arg(xpasuserip));
+            message = getMessage();
+            out << address << message;
+
+            // out << address <<getMessage();
+            ui->textBrowser->verticalScrollBar()->setValue(ui->textBrowser->verticalScrollBar()->maximum());
+        }
+        break;
+    }
+    case FileName:
+    {
+        QString clientAddresss = xpasuserip;
+        out <<address << clientAddresss << fileName;
+        break;
+    }
+    case Refuse:
+    {
+        out << serverAddress ;
+        break;
+    }
+
+    default:
+        break;
+    }
+    xchat->writeDatagram(data,data.length(),QHostAddress(xpasuserip),xport);
+
+}
+/*
+    用于接受传来的信息，并将信息展示到messageBrower上；
+
+*/
+void chat::processPendinDatagrams()
+{
+    while (xchat->hasPendingDatagrams()) {
+        QByteArray datagram;
+        datagram.resize(xchat->pendingDatagramSize());
+        xchat->readDatagram(datagram.data(),datagram.size());
+
+        QDataStream in(&datagram,QIODevice::ReadOnly);
+        int messageTyep;
+        in >> messageTyep;
+        QString userName,localHostName,ipAddress,messagestr;
+
+        QString time = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+        switch (messageTyep) {
+        case Xchat:
+
+            break;
+
+        case Message:
+        {
+            //used = false;
+            ui->label->setText(tr("与%1私聊中 对方的IP：%2").arg(xpasusername)
+                                   .arg(xpasuserip));
+            in >> userName >> localHostName >>ipAddress >>messagestr;
+            ui->textBrowser->setTextColor(Qt::blue);
+            ui->textBrowser->setCurrentFont(QFont("Times New Roman",12));
+            ui->textBrowser->append("[ " +localHostName+ " ]" + time);
+            qDebug() << "messagestr:"<< messagestr;
+            ui->textBrowser->append(messagestr);
+            this->show();
+
+        }
+        case FileName:
+        {
+            in >> userName >> localHostName >> ipAddress ;
+            QString clientAddress,fileName;
+
+            in >> clientAddress >> fileName;
+
+            hasPendinFile(userName,ipAddress,clientAddress,fileName);
+            this->show();
+            break;
+
+        }
+        case Refuse:
+        {
+            in >>userName >> localHostName;
+            QString serverAddress;
+            in >>serverAddress;
+            if(getIp() == serverAddress)
+            {
+
+            }
+            break;
+        }
+        case LeftParticipant:
+        {
+            in >> userName >> localHostName;
+            userLeft(userName,localHostName,time);
+            //s1 = userName,s2 = time;
+            QMessageBox::information(0,tr("本次对话关闭"),tr("对方结束了对话"),QMessageBox::Ok);
+            ui->textBrowser->clear();
+            ui->textEdit->clear();
+            close();
+            break;
+        }
+        default:
+            break;
+        }
+
+    }
+
+
+
+}
+
+QString chat::getMessage()
+{
+    QString msg = ui->textEdit->toHtml();
+    ui->textEdit->clear();
+    ui->textEdit->setFocus();
+    return msg;
+}
+
+
+
+
+void chat::getFileName(QString name)
+{
+    fileName = name;
+    sendMessage(FileName);
+}
+
+
+bool chat::eventFilter(QObject *target, QEvent *event)
+{
+    if(target == ui->textEdit)
+    {
+        if(event->type() == QEvent::KeyPress)
+        {
+            QKeyEvent *k = static_cast<QKeyEvent *> (event);
+            if(k->key() == Qt::Key_Return)
+            {
+
+                on_sendBtn_clicked();
+                return true;
+            }
+
+
+        }
+
+
+    }
+    return QWidget::eventFilter(target,event);
+
+}
+
+
+void chat :: userLeft(QString userName, QString localHostName, QString time)
+{
+    ui->textBrowser->setTextColor(Qt::gray);
+    ui->textBrowser->setCurrentFont(QFont("Times New Roman",10));
+
+    ui->label->setText(tr("用户%1离开会话界面!").arg(userName));
+
+}
+
+QString chat::getUserName()
+{
+
+    QStringList envVariables;
+    envVariables << "USERNAME.*" << "USER.*" << "USERDOMAIN.*"
+                 <<"HOSTNAME.*" << "DOMAINNAME.*";
+    QStringList environment = QProcess::systemEnvironment();
+    foreach (QString string, envVariables) {
+        int index = environment.indexOf(QRegularExpression(string));
+        if(index != -1)
+        {
+            QStringList stringList = environment.at(index).split('=');
+            if(stringList.size() == 2)
+            {
+                return stringList.at(1);
+                break;
+            }
+        }
+    }
+    return "unknow";
+
+}
+
+QString chat::getIp()
+{
+    QList<QHostAddress > list = QNetworkInterface::allAddresses();
+    foreach (QHostAddress address, list) {
+        if(address.protocol() == QAbstractSocket::IPv4Protocol)
+            return address.toString();
+
+    }
+    return 0;
+}
+
+void chat::hasPendinFile(QString userName, QString serverAddress, QString clientAddress, QString fileName)
+{
+    QString  ipAddress = getIp();
+    if(clientAddress  == ipAddress)
+    {
+        int btn = QMessageBox::information(this,tr("接收文件"),
+                                           tr("来自 %1 (%2)的文件:%3","是否接受")
+                                               .arg(userName)
+                                               .arg(serverAddress).arg(fileName),
+                                           QMessageBox::Yes,QMessageBox::No);
+        if(btn == QMessageBox::Yes)
+        {
+            QString name = QFileDialog::getSaveFileName(0,tr("保存文件"),fileName);
+            if(!name.isEmpty())
+            {
+                tcpclient *client = new tcpclient();
+                client->setPath(name);
+                client->setHostAddress(QHostAddress(serverAddress));
+                client->show();
+                qDebug() << "客户端已创建与服务端的链接" ;
+
+            }
+        }
+        else if(btn == QMessageBox::No){
+            sendMessage(Refuse,serverAddress);
+            qDebug() << "severAddress:"<<serverAddress;
+        }
+    }
+}
+
+
+
+
+void chat::on_boldBtn_clicked(bool checked)
+{
+
+    if(checked)
+        ui->textEdit->setFontWeight(QFont::Bold);
+
+    else
+        ui->textEdit->setFontWeight(QFont::Normal);
+    ui->textEdit->setFocus();
+}
+
+void chat::on_italicBtn_clicked(bool checked)
+{
+    ui->textEdit->setFontItalic(checked);
+    ui->textEdit->setFocus();
+
+}
+
+void chat::on_underlineBtn_clicked(bool checked)
+{
+    ui->textEdit->setFontUnderline(checked);
+    ui->textEdit->setFocus();
+
+}
+
+void chat::on_colorBtn_clicked()
+{
+    color = QColorDialog::getColor(color,this);
+    if(color.isValid())
+    {
+        ui->textEdit->setTextColor(color);
+        ui->textEdit->setFocus();
+    }
+
+}
+
+void chat::on_sendBtn_clicked()
+{
+    server=new TcpServer();
+    server->show();
+    server->initserve();
+
+}
+
+void chat::on_saveBtn_clicked()
+{
+
+    if(ui->textBrowser->document()->isEmpty())
+    {
+        QMessageBox::warning(0,tr("警告"),
+                             tr("聊天记录为空,无法保存!"),QMessageBox::Ok);
+    }
+    else
+    {
+        QString fileName  = QFileDialog::getSaveFileName(this,tr("保存聊天记录"),tr("聊天记录"),
+                                                        tr("文本(*.txt);All File(* . *)"));
+        if(!fileName.isEmpty())
+            saveFile(fileName);
+    }
+}
+
+void chat::saveFile(QString fileName)
+{
+    QFile file(fileName);
+    if(!file.open(QFile::WriteOnly | QFile::Text))
+    {
+        QMessageBox::warning(this,tr("保存文件"),tr("无法保存文件 %1:\n %2")
+                                                       .arg(fileName)
+                                                       .arg(file.errorString()));
+        return ;
+    }
+    QTextStream out(&file);
+    out << ui->textBrowser->toPlainText();
+
+
+}
+
+void chat::on_clearBtn_clicked()
+{
+    ui->textBrowser->clear();
+
+}
+
+void chat::on_closeBtn_clicked()
+{
+
+}
+
+void chat::sendingmessage()
+{
+    sendMessage(Message);
+    QString localHostName = QHostInfo::localHostName();
+    QString time = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+    ui->textBrowser->setTextColor(Qt::blue);
+    ui->textBrowser->setCurrentFont(QFont("Times New Roman",12));
+    ui->textBrowser->append("[" +localHostName+" ]" +time);
+    ui->textBrowser->append(message);
+    qDebug() << "message" <<message;
+
+}
+
+void chat::closeEvent(QCloseEvent *ev)
+{
+    sendMessage(LeftParticipant);
+    QString localHostName = QHostInfo::localHostName();
+    QString time = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+    ui->textBrowser->clear();
+    ui->textEdit->clear();
+    close();
+    emit chatclose();
+    QString usename=getUserName();
+    ui->textBrowser->append(tr("%1于%2离开!").arg(usename).arg(time));
+    ui->label->setText(tr("与%1私聊中 对方的IP：%2").arg(xpasusername)
+                           .arg(xpasuserip));
+}
+
+void chat::on_fontComboBox_currentFontChanged(const QFont &f)
+{
+    ui->textEdit->setCurrentFont(f);
+    ui->textEdit->setFocus();
+}
+
+void chat::on_comboBox_currentIndexChanged(const QString &arg1)
+{
+    ui->textEdit->setFontPointSize(arg1.toDouble());
+    ui->textEdit->setFocus();
+    //ui->messageTextEdit->setFontPointSize(arg1);
+}
