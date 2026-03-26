@@ -86,6 +86,7 @@ void tcpclient::readMessage()
         if(tcpClient->bytesAvailable() >= fileNameSize && fileNameSize != 0)
         {
             in >> fileName;
+
             qDebug() << "收到文件名:" << fileName;
             bytesReceived += fileNameSize;
 

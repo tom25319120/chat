@@ -58,7 +58,7 @@ void TcpServer::sendMessage()
 {
     nexttcp=tcpServer->nextPendingConnection();
     if (!localFile || !localFile->isOpen()) {
-        QMessageBox::warning(this, "错误", "文件未打开！");
+        QMessageBox::warning(this, "错误", tr("文件未打开！%1").arg(localFile->errorString()));
         return;
     }
     QFileInfo fileInfo(fileName);
@@ -66,6 +66,7 @@ void TcpServer::sendMessage()
     bytestoWrite=filesize;
     qint64 fileNamesize=theFileName.toUtf8().size();
     QByteArray bytes;
+
     QDataStream out(&bytes,QIODevice::ReadWrite);
     out.setVersion(QDataStream::Qt_4_0);
     out << qint64(0) << qint64(0) << theFileName;

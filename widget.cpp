@@ -159,7 +159,7 @@ void widget::hasPendingfile(QString clientaddress, QString fileName, QString loc
                                               QMessageBox::Yes | QMessageBox::No,
                                               QMessageBox::Yes);
         if (button == QMessageBox::Yes) {
-            QString path = QFileDialog::getSaveFileName(this, "保存文件", "/home",
+            QString path = QFileDialog::getSaveFileName(this, "保存文件", tr("/home/%").arg(fileName),
                                                         "Text files (*.txt);;Images (*.png *.xpm *.jpg);;XML files (*.xml)");
             if (path.isEmpty())
                 return;
@@ -221,7 +221,8 @@ void widget::closeEvent(QCloseEvent *event)
     Participantleft(getUsername(), host,
                     QDateTime::currentDateTime().toString("yyyy-MM-dd hh-mm-ss"));
     // 私聊窗口在析构函数中统一关闭，此处无需额外处理
-    QWidget::closeEvent(event);
+    qDebug()<<(tr("%1于%2 下线!").arg(getUsername(), QDateTime::currentDateTime().toString("yyyy-MM-dd hh-mm-ss")));
+
 }
 
 bool widget::eventFilter(QObject *watch, QEvent *event)
@@ -462,7 +463,7 @@ void widget::on_sendBtn_clicked()
     connect(server, &TcpServer::sendFileName, this, &widget::getFilename);
 }
 
-void widget::on_clearBtn_clicked()
+void widget::on_clearnBtn_clicked()
 {
     ui->messageBrowser->clear();
 }

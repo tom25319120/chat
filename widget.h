@@ -48,7 +48,7 @@ private slots:
     void on_sendbtn_clicked();
     void on_exitpbtn_clicked();
     void on_sendBtn_clicked();
-    void on_clearBtn_clicked();
+    void on_clearnBtn_clicked();
     void on_saveBtn_clicked();
 
 private:

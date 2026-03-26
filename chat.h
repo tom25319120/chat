@@ -51,7 +51,7 @@ protected:
     bool eventFilter(QObject *target, QEvent *event);
 
     void closeEvent(QCloseEvent *);
-
+    void newParticipant(QString username, QString Localname, QString address);
 
 private slots:
 
@@ -87,10 +87,7 @@ private:
     QString getMessage();
     QString getIp();
     QString getUserName();
-
-    QString message;
     QString fileName;
-
 };
 
 #endif // CHAT_H
