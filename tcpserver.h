@@ -6,6 +6,15 @@
 #include "qelapsedtimer.h"
 #include <QWidget>
 #include<QTcpServer>
+// 根据操作系统添加相应的头文件
+#ifdef Q_OS_WIN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#endif
 namespace Ui {
 class tcpserver;
 }

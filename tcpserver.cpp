@@ -5,6 +5,7 @@
 #include <QMessageBox>
 #include <QDebug>
 #include<ui_tcpserver.h>
+#include <winsock2.h>
 TcpServer::TcpServer(QDialog *parent)
     : QDialog(parent)
     , ui(new Ui::tcpserver)
@@ -131,15 +132,22 @@ void TcpServer::on_sendBtn_clicked()
         QMessageBox::warning(this, "错误", "请先选择文件！");
         return;
     }
-
     emit sendFileName(theFileName);
-
     // 如果已经在监听，先关闭
     if (tcpServer->isListening()) {
         tcpServer->close();
     }
-
+    int serverSocket = tcpServer->socketDescriptor();
+    if (serverSocket != -1) {
+        int reuse = 1;
+#ifdef Q_OS_WIN
+        setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&reuse, sizeof(reuse));
+#else
+        setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+#endif
+    }
     // 开始监听
+    QThread::msleep(100);
     if (!tcpServer->listen(QHostAddress::Any, 6666)) {
         QMessageBox::warning(this, "错误",
                              tr("监听失败：%1").arg(tcpServer->errorString()));

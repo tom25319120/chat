@@ -31,6 +31,7 @@ public:
     QString getmessage();
     void getFilename(QString filename);
 
+    void newParticpate();
 protected:
     void closeEvent(QCloseEvent *event) override;
     bool eventFilter(QObject *watch, QEvent *event) override;
@@ -40,8 +41,6 @@ private slots:
     void onPrivateChatClosed(const QString &ip);   // 窗口关闭时从map移除
 
     void on_boldBtn_clicked(bool checked);
-    void on_fontComboBox_currentFontChanged(const QFont &f);
-    void on_sizecomboBox_currentIndexChanged(int index);
     void on_italicBtn_clicked(bool checked);
     void on_underlineBtn_clicked(bool checked);
     void on_colorBtn_clicked();
@@ -50,6 +49,12 @@ private slots:
     void on_sendBtn_clicked();
     void on_clearnBtn_clicked();
     void on_saveBtn_clicked();
+
+    void on_fontComboBox_currentTextChanged(const QString &arg1);
+
+    void on_sizecomboBox_currentTextChanged(const QString &arg1);
+
+    void on_flash_clicked();
 
 private:
     Ui::widget *ui;
@@ -60,8 +65,11 @@ private:
     TcpServer *server;
     // 私聊窗口管理：key = 对方IP
     QMap<QString, chat*> privateChats;
-
+    QTimer *heartbeatTimer;
+    QMap<QString,QDateTime>lastSeen;
     void processPendingDatagram();
+    void sendHeartbeat();
+    void cleanupStaleUsers();
 };
 
 #endif // WIDGET_H

@@ -1,5 +1,6 @@
 #include "widget.h"
 #include "qscrollbar.h"
+#include "qtimer.h"
 #include "ui_widget.h"
 #include "tcpclient.h"
 #include "tcpserver.h"
@@ -14,6 +15,7 @@
 #include <QRegularExpression>
 #include <QTextCursor>
 #include <QDebug>
+#include <QTimer>
 
 widget::widget(QMainWindow *parent)
     : QMainWindow(parent)
@@ -25,24 +27,33 @@ widget::widget(QMainWindow *parent)
     setWindowTitle("局域网聊天室");
     setFixedSize(QSize(800,450));
     ui->userTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-
+    ui->usernum->setText(tr("在线人数:0"));
     udp = new QUdpSocket(this);
     port = 9999;
     udp->bind(port, QAbstractSocket::ShareAddress | QAbstractSocket::ReuseAddressHint);
 
     ui->textEdit->setFont(ui->fontComboBox->currentFont());
     ui->textEdit->setFontPointSize(ui->sizecomboBox->currentText().toInt());
-
+    QTimer::singleShot(100,this,[this](){
+        sendMessage(NewParticipant);
+        QTimer::singleShot(800, this, [this](){
+            sendMessage(RequestionList);
+        });
+    });
     connect(udp, &QUdpSocket::readyRead, this, &widget::processPendingDatagram);
-    sendMessage(NewParticipant);
 
-    connect(ui->saveBtn, &QToolButton::clicked, this, &widget::on_saveBtn_clicked);
     ui->textEdit->installEventFilter(this);
     ui->messageBrowser->installEventFilter(this);
     ui->userTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
     connect(ui->userTable, &QTableWidget::cellDoubleClicked,
             this, &widget::onTableWidgetCellDoubleClicked);
+    heartbeatTimer=new QTimer(this);
+    connect(heartbeatTimer,&QTimer::timeout,this,&widget::sendHeartbeat);
+    heartbeatTimer->start(30000);
+    QTimer *cleanupTimer = new QTimer(this);
+    connect(cleanupTimer, &QTimer::timeout, this, &widget::cleanupStaleUsers);
+    cleanupTimer->start(60000);
 }
 
 widget::~widget()
@@ -60,12 +71,17 @@ widget::~widget()
 
 void widget::newParticipant(QString username, QString Localname, QString address)
 {
-    bool isEmpty = ui->userTable->findItems(Localname, Qt::MatchExactly).isEmpty();
-
+    bool isEmpty = ui->userTable->findItems(address, Qt::MatchExactly).isEmpty();
+    if (address == getIP()) return;
     if (isEmpty) {
         QTableWidgetItem *user = new QTableWidgetItem(username);
         QTableWidgetItem *host = new QTableWidgetItem(Localname);
         QTableWidgetItem *ip = new QTableWidgetItem(address);
+        if(!user||!host||!ip)
+        {
+            qDebug()<<"创建QTableWidgetItem失败！";
+            return;
+        }
         ui->userTable->insertRow(0);
         ui->userTable->setItem(0, 0, user);
         ui->userTable->setItem(0, 1, host);
@@ -75,31 +91,26 @@ void widget::newParticipant(QString username, QString Localname, QString address
         ui->messageBrowser->setCurrentFont(QFont("Times New Roman", 10));
         ui->messageBrowser->append(tr("%1 在线!").arg(username));
         ui->usernum->setText(tr("在线人数:%1").arg(ui->userTable->rowCount()));
-        sendMessage(NewParticipant);
     }
 }
 
-void widget::Participantleft(QString username, QString Localname, QString time)
+void widget::Participantleft(QString ip, QString usename, QString time)
 {
-    Q_UNUSED(Localname);   // 本函数未使用主机名，消除警告
-
     // 找到该用户对应的 IP，用于关闭私聊窗口
-    QList<QTableWidgetItem*> items = ui->userTable->findItems(username, Qt::MatchExactly);
+    QList<QTableWidgetItem*> items = ui->userTable->findItems(ip, Qt::MatchExactly);
     if (!items.isEmpty()) {
         int row = items.first()->row();
-        QString userIP = ui->userTable->item(row, 2)->text();
 
         // 关闭该用户的私聊窗口（如果存在）
-        if (privateChats.contains(userIP)) {
-            privateChats[userIP]->close();   // close() 会触发 chatclose 信号，自动从 map 移除
+        if (privateChats.contains(ip)) {
+            privateChats[ip]->close();   // close() 会触发 chatclose 信号，自动从 map 移除
         }
 
         ui->userTable->removeRow(row);
     }
-
     ui->messageBrowser->setTextColor(Qt::gray);
     ui->messageBrowser->setCurrentFont(QFont("Times New Roman", 10));
-    ui->messageBrowser->append(tr("%1于%2 下线!").arg(username, time));
+    ui->messageBrowser->append(tr("%1于%2 下线!").arg(usename, time));
     ui->usernum->setText(tr("在线人数:%1").arg(ui->userTable->rowCount()));
 }
 
@@ -110,48 +121,65 @@ void widget::sendMessage(messageType type, QString serverAddress)
     QString hostname = QHostInfo::localHostName();
     QString address = getIP();
     QString username = getUsername();
-    out << type << username << hostname;
-
     switch (type) {
     case NewParticipant:
-        out << address;
+    {
+        out << type << username << hostname<<address;
         break;
+    }
     case Message:
     {
+        out << type << username << hostname<<address;
         if (ui->textEdit->toPlainText() == "") {
             QMessageBox::warning(this, "警告", "不能发送空信息！");
             return;
         } else {
-            out << address << getmessage();
+            out << getmessage();
+
             ui->messageBrowser->verticalScrollBar()->setValue(ui->messageBrowser->verticalScrollBar()->maximum());
         }
         break;
     }
     case LeftParticipant:
+        out << type << username << hostname<<address;
         break;
     case FileName:
     {
         QString clientaddress;
         int row = ui->userTable->selectedItems().first()->row();
         clientaddress = ui->userTable->item(row, 2)->text();
-        out << address << clientaddress << filename;
+        out << type << username << hostname<<address<< clientaddress << filename;
         break;
     }
     case Refuse:
-        out << address << serverAddress;
+    {
+        out << type << username << hostname<<address;
         break;
+    }
     case Xchat:
-        out << address;
+    {
+        out << type << username << hostname<<address<<serverAddress;
         break;
+    }
+    case RequestionList:
+    {
+        out << type << username << hostname<<address;
+        break;
+    }
     default:
         break;
     }
-    udp->writeDatagram(data, data.length(), QHostAddress::Broadcast, port);
+    if(type==UserInfo&&!serverAddress.isEmpty())
+    {
+        udp->writeDatagram(data,data.length(),QHostAddress(serverAddress),port);
+    }
+    else{
+        udp->writeDatagram(data, data.length(), QHostAddress::Broadcast, port);
+    }
 }
 
 void widget::hasPendingfile(QString clientaddress, QString fileName, QString localHostName, QHostAddress address)
 {
-    qDebug() << "hasPendingfile";
     QString localaddress = getIP();
     if (clientaddress == localaddress) {
         int button = QMessageBox::information(this, "信息",
@@ -213,16 +241,24 @@ QString widget::getUsername()
 QString widget::getmessage()
 {
     return ui->textEdit->toPlainText();
+
 }
 
 void widget::closeEvent(QCloseEvent *event)
 {
-    QString host = QHostInfo::localHostName();
-    Participantleft(getUsername(), host,
-                    QDateTime::currentDateTime().toString("yyyy-MM-dd hh-mm-ss"));
-    // 私聊窗口在析构函数中统一关闭，此处无需额外处理
-    qDebug()<<(tr("%1于%2 下线!").arg(getUsername(), QDateTime::currentDateTime().toString("yyyy-MM-dd hh-mm-ss")));
-
+    int flag = QMessageBox::information(this, "退出", tr("确定要退出吗？"),
+                                        QMessageBox::Yes | QMessageBox::No,
+                                        QMessageBox::Yes);
+    if (flag == QMessageBox::Yes) {
+        Participantleft(getIP(), getUsername(),
+                        QDateTime::currentDateTime().toString("yyyy-MM-dd hh-mm-ss"));
+        qDebug()<<(tr("%1于%2 下线!").arg(getUsername(), QDateTime::currentDateTime().toString("yyyy-MM-dd hh-mm-ss")));
+        sendMessage(LeftParticipant);
+        close();
+    }
+    else{
+        return;
+    }
 }
 
 bool widget::eventFilter(QObject *watch, QEvent *event)
@@ -239,22 +275,27 @@ bool widget::eventFilter(QObject *watch, QEvent *event)
 
 void widget::onTableWidgetCellDoubleClicked(int row, int column)
 {
-    Q_UNUSED(column);
-
-    QString receiveName = ui->userTable->item(row, 0)->text();
-    QString receiveHost = ui->userTable->item(row, 1)->text();
-    QString receiveIP   = ui->userTable->item(row, 2)->text();
-
+    if (row < 0 || row >= ui->userTable->rowCount()) {
+        return;
+    }
+    QTableWidgetItem *nameItem  = ui->userTable->item(row, 0);
+    QTableWidgetItem *hostItem = ui->userTable->item(row, 1);
+    QTableWidgetItem *ipItem   = ui->userTable->item(row, 2);
+    if (!nameItem || !hostItem || !ipItem) {
+        QMessageBox::warning(this, "警告", "无法获取用户信息");
+        return;
+    }
+    QString receiveName = nameItem->text();
+    QString receiveHost = hostItem->text();
+    QString receiveIP = ipItem->text();
     if (receiveIP.isEmpty()) {
         QMessageBox::warning(this, "警告", "无法获取对方IP地址");
         return;
     }
-
     if (receiveIP == getIP()) {
         QMessageBox::warning(this, "警告", "不能和自己聊天");
         return;
     }
-
     // 检查是否已经存在与该用户的私聊窗口
     if (privateChats.contains(receiveIP)) {
         chat *existingChat = privateChats.value(receiveIP);
@@ -264,23 +305,21 @@ void widget::onTableWidgetCellDoubleClicked(int row, int column)
         QMessageBox::information(this, "提示", tr("已存在与 %1 的私聊窗口").arg(receiveName));
         return;
     }
-
     // 创建新的私聊窗口
     chat *newChat = new chat(nullptr, receiveName, receiveIP);
     newChat->setWindowTitle(tr("与 %1 (%2) 的私聊").arg(receiveName, receiveIP));
     privateChats.insert(receiveIP, newChat);
-
     // 连接关闭信号，以便从 map 中移除
     connect(newChat, &chat::chatclose, this, [this, receiveIP]() {
         onPrivateChatClosed(receiveIP);
     });
 
     newChat->show();
-
     // 发送私聊请求
-    sendMessage(Xchat);
+    sendMessage(Xchat,receiveIP);
 
     ui->messageBrowser->append(tr("已向 %1 发起私聊请求...").arg(receiveName));
+    return;
 }
 
 void widget::onPrivateChatClosed(const QString &ip)
@@ -308,13 +347,14 @@ void widget::processPendingDatagram()
         case NewParticipant:
         {
             in >> username >> localHostName >> ip;
+            this->lastSeen[ip]=QDateTime::currentDateTime();
             newParticipant(username, localHostName, ip);
             break;
         }
         case LeftParticipant:
         {
-            in >> username >> localHostName;
-            Participantleft(username, localHostName, currenttime);
+            in >> username >> localHostName>>ip;
+            Participantleft(ip, username, currenttime);
             break;
         }
         case Message:
@@ -323,6 +363,7 @@ void widget::processPendingDatagram()
             QTextCursor cursor = ui->textEdit->textCursor();
             ui->messageBrowser->setTextCursor(cursor);
             ui->messageBrowser->append(tr("[%1](%2):%3").arg(username, currenttime, messageing));
+            ui->messageBrowser->verticalScrollBar()->setValue(ui->messageBrowser->verticalScrollBar()->maximum());
             break;
         }
         case FileName:
@@ -336,28 +377,23 @@ void widget::processPendingDatagram()
         }
         case Refuse:
         {
-            QString address = getIP();
             in >> username >> localHostName >> ip;
-            if (address == ip) {
-                int button = QMessageBox::information(this, "提示",
-                                                      tr("对方拒绝接收文件，是否重发文件？"),
-                                                      QMessageBox::Yes | QMessageBox::No);
-                if (button == QMessageBox::Yes) {
-                    on_sendBtn_clicked();
-                } else {
-                    if (server) server->close();
-                }
+            int button = QMessageBox::information(this, "提示",
+                                                  tr("对方拒绝接收文件，是否重发文件？"),
+                                                  QMessageBox::Yes | QMessageBox::No);
+            if (button == QMessageBox::Yes) {
+                on_sendBtn_clicked();
+            } else {
+                if (server) server->close();
             }
             break;
         }
         case Xchat:
         {
-            in >> username >> localHostName >> ip;
-
-            int button = QMessageBox::question(this, "私聊询问",
-                                               tr("%1 (%2) 发起私聊请求，是否同意？").arg(username, ip),
-                                               QMessageBox::Yes | QMessageBox::No);
-            if (button == QMessageBox::Yes) {
+            QString address;
+            in >> username >> localHostName >> ip>>address;
+            if(address==getIP())
+            {
                 if (privateChats.contains(ip)) {
                     QMessageBox::information(this, "提示",
                                              tr("已存在与 %1 的私聊窗口").arg(username));
@@ -366,25 +402,95 @@ void widget::processPendingDatagram()
                     privateChats[ip]->activateWindow();
                     break;
                 }
-
                 chat *newChat = new chat(nullptr, username, ip);
                 newChat->setWindowTitle(tr("与 %1 (%2) 的私聊").arg(username, ip));
                 privateChats.insert(ip, newChat);
-
                 connect(newChat, &chat::chatclose, this, [this, ip]() {
                     onPrivateChatClosed(ip);
                 });
-
                 newChat->show();
-                ui->messageBrowser->append(tr("已同意与 %1 的私聊请求").arg(username));
-            } else {
-                sendMessage(Refuse, ip);
+            }
+            break;
+        }
+        case RequestionList:  // 收到用户列表请求
+        {
+            in >> username >> localHostName >> ip;
+            QString myIP = getIP();
+
+            // 如果请求者不是自己，则回复当前所有在线用户
+            if (ip != myIP) {
+                for (int i = 0; i < ui->userTable->rowCount(); i++) {
+                    QTableWidgetItem *userItem = ui->userTable->item(i, 0);
+                    QTableWidgetItem *hostItem = ui->userTable->item(i, 1);
+                    QTableWidgetItem *ipItem = ui->userTable->item(i, 2);
+
+                    if (userItem && hostItem && ipItem) {
+                        QString user = userItem->text();
+                        QString host = hostItem->text();
+                        QString userIP = ipItem->text();
+
+                        if (userIP != myIP) {
+                            QByteArray responseData;
+                            QDataStream responseOut(&responseData, QIODeviceBase::WriteOnly);
+                            responseOut << (int)UserInfo << user << host << userIP << ip;
+                            udp->writeDatagram(responseData, responseData.length(), QHostAddress(ip), port);
+                            qDebug() << "发送用户信息:" << user << userIP << "给" << ip;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+        case UserInfo:
+        {
+            QString user,host,userIP ;
+            QString myIP = getIP();
+            in>>user>>host>>userIP>>ip;
+            if(userIP != myIP)
+            {
+                bool exists = false;
+                for (int i = 0; i < ui->userTable->rowCount(); i++) {
+                    QTableWidgetItem *ipItem = ui->userTable->item(i, 2);
+                    if (ipItem && ipItem->text() == userIP) {
+                        exists = true;
+                        break;
+                    }
+                }
+
+                if (!exists) {
+                    newParticipant(user, host, userIP);
+                    qDebug() << "添加用户:" << user << "IP:" << userIP;
+                } else {
+                    qDebug() << "用户已存在，跳过添加:" << user;
+                }
             }
             break;
         }
         default:
             break;
         }
+    }
+}
+
+void widget::sendHeartbeat()
+{
+    sendMessage(NewParticipant);
+}
+
+void widget::cleanupStaleUsers()
+{
+    QDateTime now = QDateTime::currentDateTime();
+    QList<QString> toRemove;
+    for (auto it = lastSeen.begin(); it != lastSeen.end(); ++it) {
+        if (it.value().secsTo(now) > 90) {  // 超过90秒未收到心跳
+            toRemove.append(it.key());
+        }
+    }
+    for (const QString &ip : toRemove) {
+        // 从 userTable 中移除该 IP 对应的行
+        // 并关闭对应的私聊窗口
+        Participantleft(ip, tr("未知用户"), now.toString());
+        lastSeen.remove(ip);
     }
 }
 
@@ -400,18 +506,6 @@ void widget::on_boldBtn_clicked(bool checked)
     ui->textEdit->setFocus();
 }
 
-void widget::on_fontComboBox_currentFontChanged(const QFont &f)
-{
-    ui->textEdit->setCurrentFont(f);
-    ui->textEdit->setFocus();
-}
-
-void widget::on_sizecomboBox_currentIndexChanged(int index)
-{
-    Q_UNUSED(index);
-    ui->textEdit->setFontPointSize(ui->sizecomboBox->currentText().toInt());
-    ui->textEdit->setFocus();
-}
 
 void widget::on_italicBtn_clicked(bool checked)
 {
@@ -443,16 +537,16 @@ void widget::on_sendbtn_clicked()
 
 void widget::on_exitpbtn_clicked()
 {
-    int flag = QMessageBox::information(this, "退出", tr("确定要退出吗？"),
-                                        QMessageBox::Yes | QMessageBox::No,
-                                        QMessageBox::Yes);
-    if (flag == QMessageBox::Yes) {
-        close();
-    }
+    close();
 }
 
 void widget::on_sendBtn_clicked()
 {
+    if (server) {
+        server->close();
+        delete server;
+        server = nullptr;
+    }
     if (ui->userTable->selectedItems().empty()) {
         QMessageBox::warning(this, tr("错误"), tr("没有选择发送人"));
         return;
@@ -484,3 +578,23 @@ void widget::on_saveBtn_clicked()
     file.close();
     qDebug() << "文件已保存到:" << path;
 }
+
+void widget::on_fontComboBox_currentTextChanged(const QString &arg1)
+{
+    ui->textEdit->setCurrentFont(arg1);
+    ui->textEdit->setFocus();
+}
+
+
+void widget::on_sizecomboBox_currentTextChanged(const QString &arg1)
+{
+    ui->textEdit->setFontPointSize(ui->sizecomboBox->currentText().toInt());
+    ui->textEdit->setFocus();
+}
+
+
+void widget::on_flash_clicked()
+{
+    sendMessage(RequestionList);
+}
+

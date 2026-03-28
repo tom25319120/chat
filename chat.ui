@@ -255,7 +255,7 @@
        </spacer>
       </item>
       <item>
-       <widget class="QPushButton" name="sendBtn_2">
+       <widget class="QPushButton" name="sendbtn">
         <property name="text">
          <string>发送</string>
         </property>
@@ -275,7 +275,7 @@
        </spacer>
       </item>
       <item>
-       <widget class="QPushButton" name="pushButton_2">
+       <widget class="QPushButton" name="closeBtn">
         <property name="text">
          <string>关闭</string>
         </property>

@@ -8,6 +8,7 @@
 #include<QDataStream>
 #include<QTime>
 #include"tcpserver.h"
+#include "ui_chat.h"
 #include<QString>
 namespace Ui {
 class chat;
@@ -20,7 +21,9 @@ enum messageType{
     LeftParticipant,
     Refuse,
     FileName,
-    Xchat
+    Xchat,
+    RequestionList,
+    UserInfo
 };
 
 
@@ -31,15 +34,17 @@ class chat : public QDialog
 public:
     // explicit Chat(QWidget *parent = 0);
     ~chat();
-    chat(QWidget *parent,QString pasvusername,QString pasvuserip);
+    chat(QWidget *parent,QString xpasvusername,QString xpasvuserip);
 
     QString xpasuserip;
     QString xpasusername;
     QUdpSocket *xchat;
     qint32 xport;
 
+    /*
+    发送信息到广播
+         */
     void sendMessage(messageType type,QString serverAddress = "");
-    void sendingmessage();
 signals:
     void chatclose();
 protected:
@@ -68,15 +73,18 @@ private slots:
 
     void on_saveBtn_clicked();
 
-    void on_clearBtn_clicked();
-
-    void on_closeBtn_clicked();
-
     void on_sendBtn_clicked();
 
     void on_fontComboBox_currentFontChanged(const QFont &f);
 
-    void on_comboBox_currentIndexChanged(const QString &arg1);
+    void on_clearnBtn_clicked();
+
+    void on_sizecomboBox_currentTextChanged(const QString &arg1);
+
+
+    void on_sendbtn_clicked();
+
+    void on_closeBtn_clicked();
 
 private:
     Ui::chat *ui;
