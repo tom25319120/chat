@@ -80,7 +80,6 @@ void chat::sendMessage(messageType type, QString serverAddress)
             ui->textBrowser->setTextCursor(cursor);
             if (messagestr.length() > 512) {
                 messagestr = messagestr.left(512);
-                // 可选：提示用户消息被截断
             }
             ui->textBrowser->append(tr("[%1](%2):%3").arg(getUserName(),  QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"),messagestr));
         }

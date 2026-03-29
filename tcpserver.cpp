@@ -101,7 +101,7 @@ void TcpServer::on_openBtn_clicked()
         localFile = nullptr;
     }
 
-    // ✅ 创建新的文件对象并打开
+    // 创建新的文件对象并打开
     localFile = new QFile(fileName);
     if(!localFile->open(QIODevice::ReadOnly))
     {
@@ -112,7 +112,7 @@ void TcpServer::on_openBtn_clicked()
         return;
     }
 
-    // ✅ 获取文件大小
+    // 获取文件大小
     filesize = fileInfo.size();
 
     ui->openBtn->setEnabled(false);

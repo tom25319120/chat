@@ -200,8 +200,6 @@ void tcpclient::updataprocess()
         ui->label->setText(tr("接收文件: %1 完毕").arg(fileName));
         int flag=QMessageBox::information(this, "完成", tr("文件接收成功！\n保存位置：%1").arg(path));
         if(flag==QMessageBox::Ok)close();
-        // 可选：自动关闭窗口
-        // this->close();
     }
 }
 
